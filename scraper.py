@@ -4,13 +4,12 @@ import requests
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
 
-# Supabase Connection Setup (Environment variables se data uthaega)
+# Supabase Connection Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def clean_and_split_data(row_text):
-    # Regex jo DD/MM/YYYY format ki date dhoondega
     date_pattern = r'\b\d{2}/\d{2}/\d{4}\b'
     match = re.search(date_pattern, row_text)
     
@@ -21,7 +20,6 @@ def clean_and_split_data(row_text):
         last_date = "Check Notification"
         clean_title = row_text.strip()
         
-    # Extra symbols jaise '—' ko saaf karna start ya end se
     clean_title = re.sub(r'^[—\s•.-]+|[—\s•.-]+$', '', clean_title).strip()
     return clean_title, last_date
 
@@ -46,7 +44,9 @@ def run_production_scraper():
         return
 
     rows = job_table.find_all('tr')
+    print(f"Total rows mile: {len(rows)}")
     
+    inserted_count = 0
     for row in rows:
         full_row_text = row.text.strip()
         link_tag = row.find('a')
@@ -54,13 +54,15 @@ def run_production_scraper():
         if link_tag and full_row_text:
             job_url = link_tag['href']
             
-            # Title aur Date split function
+            # Agar relative URL hai toh base domain jod denge
+            if job_url.startswith('/'):
+                job_url = f"https://www.majhinaukri.in{job_url}"
+                
             title, last_date = clean_and_split_data(full_row_text)
             
-            # Filter valid jobs
-            if "majhinaukri.in" in job_url and len(title) > 10:
+            # Faltu menu links hatane ke liye sirf length check karenge (robust filtering)
+            if len(title) > 12 and not any(x in job_url for x in ["/category/", "/contact-us/", "javascript:"]):
                 
-                # Supabase payload dictionary banana
                 job_data = {
                     "title": title,
                     "last_date": last_date,
@@ -68,18 +70,19 @@ def run_production_scraper():
                 }
                 
                 try:
-                    # Duplicate check karna database me push karne se pehle
                     existing = supabase.table("jobs").select("*").eq("title", title).execute()
                     
                     if len(existing.data) == 0:
-                        # Naya record insert karna
                         supabase.table("jobs").insert(job_data).execute()
-                        print(f"✅ Database me save hua: {title} | Date: {last_date}")
+                        print(f"✅ Saved: {title}")
+                        inserted_count += 1
                     else:
-                        print(f"⏭️ Pehle se maujood hai: {title}")
+                        print(f"⏭️ Skipped: {title}")
                         
                 except Exception as e:
-                    print(f"❌ Supabase me error aaya: {e}")
+                    print(f"❌ Supabase Error: {e}")
+                    
+    print(f"Total {inserted_count} naye records save hue.")
 
 if __name__ == "__main__":
     run_production_scraper()
