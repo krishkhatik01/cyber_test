@@ -29,7 +29,7 @@ def run_production_scraper():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
-    print("Live MajhiNaukri se data fetch ho raha hai...")
+    print("Live MajhiNaukri se saara data fetch ho raha hai...")
     response = requests.get(url, headers=headers)
     
     if response.status_code != 200:
@@ -37,51 +37,56 @@ def run_production_scraper():
         return
         
     soup = BeautifulSoup(response.text, 'html.parser')
-    job_table = soup.find('table')
     
-    if not job_table:
-        print("Table nahi mila!")
+    # PEHLE: sirf soup.find('table') tha, AB: find_all ki saare tables mil sakein
+    all_tables = soup.find_all('table')
+    
+    if not all_tables:
+        print("Koi bhi table nahi mila!")
         return
 
-    rows = job_table.find_all('tr')
-    print(f"Total rows mile: {len(rows)}")
-    
+    print(f"Total {len(all_tables)} tables mile. Sabhi tables se data nikaal rahe hain...")
     inserted_count = 0
-    for row in rows:
-        full_row_text = row.text.strip()
-        link_tag = row.find('a')
+    
+    for job_table in all_tables:
+        rows = job_table.find_all('tr')
         
-        if link_tag and full_row_text:
-            job_url = link_tag['href']
+        for row in rows:
+            full_row_text = row.text.strip()
+            link_tag = row.find('a')
             
-            # Agar relative URL hai toh base domain jod denge
-            if job_url.startswith('/'):
-                job_url = f"https://www.majhinaukri.in{job_url}"
+            if link_tag and full_row_text:
+                job_url = link_tag['href']
                 
-            title, last_date = clean_and_split_data(full_row_text)
-            
-            # Faltu menu links hatane ke liye sirf length check karenge (robust filtering)
-            if len(title) > 12 and not any(x in job_url for x in ["/category/", "/contact-us/", "javascript:"]):
-                
-                job_data = {
-                    "title": title,
-                    "last_date": last_date,
-                    "apply_link": job_url
-                }
-                
-                try:
-                    existing = supabase.table("jobs").select("*").eq("title", title).execute()
+                if job_url.startswith('/'):
+                    job_url = f"https://www.majhinaukri.in{job_url}"
                     
-                    if len(existing.data) == 0:
-                        supabase.table("jobs").insert(job_data).execute()
-                        print(f"✅ Saved: {title}")
-                        inserted_count += 1
-                    else:
-                        print(f"⏭️ Skipped: {title}")
+                title, last_date = clean_and_split_data(full_row_text)
+                
+                # Robust Filtering: Faltu menu ya share buttons ko hatane ke liye
+                if len(title) > 15 and not any(x in job_url for x in ["/category/", "/contact-us/", "javascript:", "/share-"]):
+                    
+                    job_data = {
+                        "title": title,
+                        "last_date": last_date,
+                        "apply_link": job_url
+                    }
+                    
+                    try:
+                        # Purana check taaki duplicate data na ho
+                        existing = supabase.table("jobs").select("*").eq("title", title).execute()
                         
-                except Exception as e:
-                    print(f"❌ Supabase Error: {e}")
-                    
+                        if len(existing.data) == 0:
+                            supabase.table("jobs").insert(job_data).execute()
+                            print(f"✅ Saved: {title}")
+                            inserted_count += 1
+                        else:
+                            # print(f"⏭️ Skipped: {title}")
+                            pass
+                            
+                    except Exception as e:
+                        print(f"❌ Supabase Error: {e}")
+                        
     print(f"Total {inserted_count} naye records save hue.")
 
 if __name__ == "__main__":
