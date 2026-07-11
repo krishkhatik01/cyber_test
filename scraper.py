@@ -4,9 +4,16 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import date
 from supabase import create_client, Client
-from dotenv import load_dotenv
 
-load_dotenv()  # .env file ke andar ki values ko environment mein load karo
+# python-dotenv sirf LOCAL development ke liye chahiye (.env file se load
+# karne ke liye). GitHub Actions / CI mein secrets already environment
+# variables ki tarah set hote hain, wahan .env file hoti hi nahi — isliye
+# ye import optional rakha hai taaki CI mein crash na ho.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # CI environment mein ye package na ho toh koi problem nahi
 
 # Supabase Connection Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -15,8 +22,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise SystemExit(
         "❌ SUPABASE_URL ya SUPABASE_ANON_KEY missing hai. "
-        ".env file check karo (project root mein honi chahiye) "
-        "ya environment variables set karo."
+        "Local mein .env file check karo, ya CI mein GitHub Secrets "
+        "properly workflow file mein pass ho rahe hain confirm karo."
     )
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -93,7 +100,7 @@ def is_garbage(title: str) -> bool:
     return False
 
 
-
+def normalize_title(title: str) -> str:
     """Must mirror the Postgres generated column exactly:
     lower + trim + collapse whitespace."""
     t = title.strip().lower()
