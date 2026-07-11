@@ -4,10 +4,21 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import date
 from supabase import create_client, Client
+from dotenv import load_dotenv
+
+load_dotenv()  # .env file ke andar ki values ko environment mein load karo
 
 # Supabase Connection Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise SystemExit(
+        "❌ SUPABASE_URL ya SUPABASE_ANON_KEY missing hai. "
+        ".env file check karo (project root mein honi chahiye) "
+        "ya environment variables set karo."
+    )
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
@@ -39,7 +50,50 @@ def clean_and_split_data(row_text):
     return clean_title, parsed_date, vacancies
 
 
-def normalize_title(title: str) -> str:
+def is_garbage(title: str) -> bool:
+    """
+    Non-job text ko filter out karta hai — navigation menu, stat counters,
+    sidebar bullets, current affairs, aur bahut chhote/khali titles.
+    """
+    if not title or len(title.strip()) < 15:
+        return True
+
+    t = title.strip()
+
+    # Stat counters jaise "298K+ 100K+ 7.5K+" ya "140K+ 1 M+248K+"
+    if re.search(r'\d+K\+|\d+\s*M\+', t):
+        return True
+
+    # "»" se start hone wale sidebar bullets
+    if t.startswith('»') or t.startswith('•'):
+        return True
+
+    # Current Affairs entries — ye job listing nahi hai
+    if 'चालू घडामोडी' in t or 'Current Affairs' in t:
+        return True
+
+    # Known navigation/menu junk phrases
+    nav_keywords = [
+        'होम', 'मेगाभरती', 'रोजगार मेळावे', 'करिअर',
+        'New Updates', 'Latest Jobs', 'Mock Test',
+        'Subscribers', 'Downloads', 'Likes', 'Followers',
+    ]
+    # Agar title in keywords ka hi ek chhota combination hai (menu row),
+    # aur usme koi "Bharti"/"भरती"/"Recruitment" jaisa job-signal nahi hai,
+    # toh discard karo.
+    has_job_signal = bool(re.search(
+        r'Bharti|भरती|Recruitment|प्रवेशपत्र|निकाल|Result|Hall Ticket|Admit Card|Exam',
+        t, re.IGNORECASE
+    ))
+    if not has_job_signal:
+        matches_nav = sum(1 for kw in nav_keywords if kw in t)
+        if matches_nav >= 1:
+            return True
+
+    return False
+
+
+
     """Must mirror the Postgres generated column exactly:
     lower + trim + collapse whitespace."""
     t = title.strip().lower()
